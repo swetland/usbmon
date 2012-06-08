@@ -23,7 +23,6 @@
 #include <errno.h>
 
 #include <sys/ioctl.h>
-#include <linux/ioctl.h>
 
 typedef unsigned long long u64;
 typedef signed long long s64;
@@ -45,8 +44,10 @@ int main(int argc, char **argv)
 	memset(filter_dev, 0, sizeof(filter_dev));
 
 	fd = open("/dev/usbmon0", O_RDONLY);
-	if (fd < 0) 
+	if (fd < 0) {
+		printf("Couldn't open /dev/usbmon0, exiting.\n");
 		return -1;
+	}
 
 	argc--;
 	argv++;
