@@ -41,6 +41,7 @@ int main(int argc, char **argv)
 	struct usbmon_get arg;
 	unsigned char filter_dev[128];
 	int fd, r, n;
+	unsigned busmask = 0;
 
 	memset(filter_dev, 0, sizeof(filter_dev));
 
@@ -53,11 +54,22 @@ int main(int argc, char **argv)
 	while (argc--) {
 		if (argv[0][0] == '-') {
 			switch(argv[0][1]) {
-			case 'x':
+			case 'x': /* eXclude device */
 				r = atoi(argv[0] + 2);
 				if ((r < 0) || (r > 127))
 					continue;
 				filter_dev[r] = 1;
+				break;
+			case 'b': /* limit to Bus */
+				r = atoi(argv[0] + 2);
+				busmask = ~(1 << r);
+				break;
+			case 'd': /* limit to Device */
+				memset(filter_dev, 0x01, sizeof(filter_dev));
+				r = atoi(argv[0] + 2);
+				if ((r < 0) || (r > 127))
+					continue;
+				filter_dev[r] = 0;
 				break;
 			}
 		}
@@ -72,6 +84,8 @@ int main(int argc, char **argv)
 		if (r < 0)
 			break;
 		if (filter_dev[hdr.devnum])
+			continue;
+		if (busmask & (1 << hdr.busnum))
 			continue;
 		printf("%d.%03d.%03d %c %c%c %04x",
 			hdr.busnum, hdr.devnum, hdr.epnum & 0x7F,
@@ -107,8 +121,11 @@ int main(int argc, char **argv)
 			case -ETIMEDOUT:
 				printf(" TIMEDOUT\n");
 				break;
+			case -EREMOTEIO:
+				printf(" OK (SHORT)\n");
+				break;
 			default:
-				printf(" %s\n", strerror(-hdr.status));
+				printf(" %s (%d)\n", strerror(-hdr.status),-hdr.status);
 			}
 		}
 		if (!hdr.len_cap) 
@@ -118,8 +135,9 @@ dumpdata:
 		if (hdr.len_cap > sizeof(data))
 			hdr.len_cap = sizeof(data);
 		for (n = 0; n < hdr.len_cap; n++) 
-			printf((n & 3) ? "%02x" : " %02x",data[n]);
+			printf((n & 3) ? " %02x" : " %02x",data[n]);
 		printf("\n");
+		fflush(stdout);
 	}
 	return 0;	
 }

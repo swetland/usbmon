@@ -1,0 +1,20 @@
+
+USBMON
+------
+
+A simple tool to trace linux USB activity, using /dev/usbmon0.
+
+By default it dumps all USB traffic.  Use options:
+
+ -b###  dump only bus ###
+ -d###  dump only device ###
+ -x###  exclude device ### from dump
+
+If you don't have /dev/usbmon0 you probably need to load the driver:
+% sudo modprobe usbmon
+
+And you will likely have to adjust permissions too (unless you want to
+run this program as root):
+% sudo chown $USER /dev/usbmon0
+
+
