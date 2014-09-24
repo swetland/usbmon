@@ -218,21 +218,45 @@ struct {
 
 unsigned state = JTAG_RESET;
 unsigned shiftcount = 0;
-unsigned idlecount = 0;
+unsigned statecount = 1;
 u64 shiftdata = 0;
 
 void _sim_jtag(unsigned tdi, unsigned tms) {
+	u32 newstate = tms ? GRAPH[state].next1 : GRAPH[state].next0;
+	u32 n;
+
+#if TRACE_JTAG
+	if (newstate != state) {
+		if (statecount > 1) {
+			printf("jtag: %s x %d\n", JSTATE[state], statecount);
+		} else {
+			printf("jtag: %s\n", JSTATE[state]);
+		}
+		statecount = 1;
+	} else {
+		statecount++;
+	}
+#endif
+
 	switch (state) {
+#if 0
 	case JTAG_IDLE:
 		idlecount++;
+		if (newstate != JTAG_IDLE) {
+			printf("jtag: IDLE for %d TCKs\n", idlecount);
+			idlecount = 0;
+		}
 		break;
+#endif
 	case JTAG_DRSHIFT:
 	case JTAG_IRSHIFT:
 		if (shiftcount < 64) {
 			if (tdi) shiftdata |= (1ULL << shiftcount);
+#if 0
 		} else {
 			shiftdata >>= 1;
 			if (tdi) shiftdata |= 0x8000000000000000ULL;
+#endif
 		}
 		shiftcount++;
 		break;
@@ -243,21 +267,24 @@ void _sim_jtag(unsigned tdi, unsigned tms) {
 		break;
 	case JTAG_DRUPDATE:
 #if TRACE_JTAG
-		printf("jtag: %4d -> DR %016lx\n", shiftcount, shiftdata);
+		n = (shiftcount + 3) >> 2;
+		if (n > 16) n = 16;
+		printf("jtag: DR(%d) = %s%0*lx\n", shiftcount,
+			(shiftcount > 64) ? "..." : "", n, shiftdata);
 #endif
 		sim_dr(shiftdata);
 		break;
 	case JTAG_IRUPDATE:
 #if TRACE_JTAG
-		printf("jtag: %4d -> IR %016lx\n", shiftcount, shiftdata);
+		n = (shiftcount + 3) >> 2;
+		if (n > 16) n = 16;
+		printf("jtag: IR(%d) = %s%0*lx\n", shiftcount,
+			(shiftcount > 64) ? "..." : "", n, shiftdata);
 #endif
 		sim_ir(shiftdata);
 		break;
 	};
-#if TRACE_JTAG
-	printf("jtag: state = %s\n", JSTATE[state]);
-#endif
-	state = tms ? GRAPH[state].next1 : GRAPH[state].next0;
+	state = newstate;
 }
 
 u8 stream[1024*1024];
