@@ -24,12 +24,15 @@ typedef unsigned long u64;
 
 #define TRACE_MPSSE	0
 #define TRACE_JTAG	0
+#define TRACE_DAP	0
 
 // ----- simulate arm dap -----
 
 void dap_abort(u64 v) {
 	u32 data = v;
-	printf("abort wr %08x\n", data); // 36?
+#if TRACE_DAP
+	printf("dpacc: wr %08x -> ABORT\n", data); // 36?
+#endif
 }
 
 u32 dap_apnum = 0;
@@ -37,7 +40,7 @@ u32 dap_bank = 0;
 
 const char *dp_addr2name(unsigned addr) {
 	switch (addr) {
-	case 0x00: return "ABORT";
+	case 0x00: return "RESERVED";
 	case 0x04: return "CSW";
 	case 0x08: return "SELECT";
 	case 0x0C: return "RDBUFF";
@@ -50,12 +53,15 @@ void dap_dpacc(u64 v) {
 	u32 cmd = v & 7;
 	u32 addr = (cmd & 6) << 1;
 
-	printf("dpacc %s %08x -> DP  %02x %s\n",
+#if TRACE_DAP
+	printf("dpacc: %s %08x -> DP  %02x %s\n",
 		(cmd & 1) ? "rd" : "wr", data, addr, dp_addr2name(addr));
-
-	if (addr == 0x08) { // DPSEL
-		dap_apnum = data >> 24;
-		dap_bank = data & 0xF0;
+#endif
+	if ((cmd & 1) == 0) {
+		if (addr == 0x08) { // DPSEL
+			dap_apnum = data >> 24;
+			dap_bank = data & 0xF0;
+		}
 	}
 }
 
@@ -75,13 +81,66 @@ const char *ap_addr2name(unsigned addr) {
 	}
 }
 
+struct {
+	u32 tar;
+	u32 csw;
+} AP[256];
+
+// not handled:
+// - auto-incr modes other than single
+// - transfer sizes other than 32
+
 void dap_apacc(u64 v) {
 	u32 data = v >> 3;
 	u32 cmd = v & 7;
 	u32 addr = dap_bank | ((cmd & 6) << 1);
-	printf("apacc %s %08x -> AP%d %02x %s\n",
+#if TRACE_DAP
+	printf("apacc: %s %08x -> AP%d %02x %s\n",
 		(cmd & 1) ? "rd" : "wr", data, dap_apnum, addr,
 		ap_addr2name(addr));
+#endif
+
+	if ((cmd & 1) == 0) {
+		switch (addr) {
+		case 0x00:
+			AP[dap_apnum].csw = data;
+			break;
+		case 0x04:
+			AP[dap_apnum].tar = data;
+			break;
+		case 0x0C:
+			printf("mem: wr%d %08x -> %08x\n",
+				dap_apnum, data, AP[dap_apnum].tar);
+			if ((AP[dap_apnum].csw & 0x30) == 0x10) {
+				AP[dap_apnum].tar += 4;
+			}
+			break;
+		case 0x10:
+		case 0x14:
+		case 0x18:
+		case 0x1C:
+			printf("mem: wr%d %08x -> %08x\n", dap_apnum, data,
+				(AP[dap_apnum].tar & 0xFFFFFFF0) | (addr & 0xF));
+			break;
+		} 
+	} else {
+		switch (addr) {
+		case 0x0C:
+			printf("mem: rd%d %08x\n",
+				dap_apnum, AP[dap_apnum].tar);
+			if ((AP[dap_apnum].csw & 0x30) == 0x10) {
+				AP[dap_apnum].tar += 4;
+			}
+			break;
+		case 0x10:
+		case 0x14:
+		case 0x18:
+		case 0x1C:
+			printf("mem: rd%d %08x\n", dap_apnum,
+				(AP[dap_apnum].tar & 0xFFFFFFF0) | (addr & 0xF));
+			break;
+		} 
+	}
 }
 
 
@@ -94,7 +153,6 @@ u32 ir_arm = 0xffffffff;
 void sim_ir(u64 data) {
 	ir_fpga = data & 0x3f;
 	ir_arm = (data >> 6) & 0xf;
-//	printf("ARM(%02x) FPGA(%02x)\n", ir_arm, ir_fpga);
 }
 
 void sim_dr(u64 data) {
@@ -208,9 +266,10 @@ unsigned last_tms;
 
 void sim_jtag(void) {
 	u8 *x = stream;
-	while (scount-- > 0) {
+	while (scount > 0) {
 		_sim_jtag(*x & 1, *x >> 1);
 		x++;
+		scount--;
 	}
 }
 
@@ -259,7 +318,7 @@ static void pbin(u32 val, u32 bits) {
 static void dismpsse(u8 *data, u32 n) {
 	u32 x, i;
 	while (n > 0) {
-		dprintf("%02x: ", data[0]);
+		dprintf("mpsse: %02x: ", data[0]);
 		switch(data[0]) {
 		case 0x6B: // tms rw
 		case 0x6F: // tms rw -veWr -veRd
@@ -360,6 +419,7 @@ static void dismpsse(u8 *data, u32 n) {
 			fprintf(stderr, "INVALID OPCODE %02x\n",data[0]);
 			n = 0;
 		}
+		sim_jtag();
 	}
 }
 
